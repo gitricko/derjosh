@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-GUI-Launcher für approx_borrow_size_analysis.py
-- Wähle Optionen per Klick
-- Starte Overview, Detail oder Beides
+GUI launcher for approx_borrow_size_analysis.py
+- Select options by clicking
+- Launch Overview, Detail, or Both
 """
 
 import sys
@@ -31,7 +31,7 @@ class Launcher(tk.Tk):
         except Exception:
             pass
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.geometry("820x900")
+        self.geometry("820x850")
         self.minsize(780, 580)
 
         # --- Vars ---
@@ -50,6 +50,7 @@ class Launcher(tk.Tk):
         self.borrow_zoom_on = tk.BooleanVar(value=False)
         self.borrow_floor_mode = tk.StringVar(value="none")
         self.initial_symbol = tk.StringVar(value="")
+        self.debug = tk.BooleanVar(value=False)
 
         self.sep = tk.StringVar(value="")        # optional
         self.symbol_col = tk.StringVar(value="") # optional
@@ -100,7 +101,7 @@ class Launcher(tk.Tk):
         ttk.Label(colL, text="Top N in Overview:").pack(anchor="w", pady=(8,0))
         ttk.Spinbox(colL, from_=1, to=30, textvariable=self.topN, width=6).pack(anchor="w")
 
-        ttk.Label(colL, text="Datenmode:").pack(anchor="w", pady=(8,0))
+        ttk.Label(colL, text="Datemode:").pack(anchor="w", pady=(8,0))
         for v, txt2 in [("data","All Days"), ("weekday","Without Weekend")]:
             ttk.Radiobutton(colL, text=txt2, value=v, variable=self.date_mode, command=self._update_cmd_preview).pack(anchor="w")
 
@@ -117,18 +118,16 @@ class Launcher(tk.Tk):
         colM.pack(side="left", fill="y", padx=(0,10))
 
         ttk.Label(colM, text="X axis:").pack(anchor="w")
-        for v, txt in [("time","Timestamp"), ("index","Equally spaced"), ("compact","Compact")]:
+        for v, txt in [("time","Timestamp"), ("index","Equally spaced")]:
             ttk.Radiobutton(colM, text=txt, value=v, variable=self.x_mode, command=self._update_cmd_preview).pack(anchor="w")
 
-        ttk.Label(colM, text="Borrow view:").pack(anchor="w", pady=(8,0))
+        ttk.Label(colM, text="Borrow Size view:").pack(anchor="w", pady=(8,0))
         for v, txt in [("absolute","Absolute"), ("delta","Δ vs Baseline")]:
             ttk.Radiobutton(colM, text=txt, value=v, variable=self.borrow_view, command=self._update_cmd_preview).pack(anchor="w")
 
         ttk.Label(colM, text="Δ baseline:").pack(anchor="w", pady=(8,0))
         for v, txt in [("first","First value"), ("median","Median")]:
             ttk.Radiobutton(colM, text=txt, value=v, variable=self.delta_baseline, command=self._update_cmd_preview).pack(anchor="w")
-
-        ttk.Checkbutton(colM, text="Open detail view", variable=self.detail, command=self._update_cmd_preview).pack(anchor="w", pady=(8,0))
 
         ttk.Label(colM, text="Initial Symbol (optional):").pack(anchor="w", pady=(8,0))
         ttk.Entry(colM, textvariable=self.initial_symbol, width=20).pack(anchor="w")
@@ -145,19 +144,6 @@ class Launcher(tk.Tk):
         for v, txt in [("none","No Floor"), ("p10","10th percentile"), ("min","Minimum")]:
             ttk.Radiobutton(colR, text=txt, value=v, variable=self.borrow_floor_mode, command=self._update_cmd_preview).pack(anchor="w")
 
-        # Optional CSV-Hints
-        box_csv = ttk.LabelFrame(frm, text="CSV-Import (optional)", padding=10)
-        box_csv.pack(fill="x", pady=8)
-
-        row = ttk.Frame(box_csv); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Separator (empty=auto):").pack(side="left")
-        ttk.Entry(row, textvariable=self.sep, width=6).pack(side="left", padx=5)
-
-        row = ttk.Frame(box_csv); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Symbol-Spalte:").pack(side="left"); ttk.Entry(row, textvariable=self.symbol_col, width=16).pack(side="left", padx=5)
-        ttk.Label(row, text="Price-Spalte:").pack(side="left"); ttk.Entry(row, textvariable=self.price_col, width=16).pack(side="left", padx=5)
-        ttk.Label(row, text="Borrow-Spalte:").pack(side="left"); ttk.Entry(row, textvariable=self.borrow_col, width=16).pack(side="left", padx=5)
-
         # Presets section
         box_preset = ttk.LabelFrame(frm, text="Presets", padding=10)
         box_preset.pack(fill="x", pady=8)
@@ -165,7 +151,7 @@ class Launcher(tk.Tk):
         rowp.pack(fill="x")
         ttk.Label(rowp, text=f"File: {SETTINGS_FILE}").pack(side="left")
         ttk.Button(rowp, text="Save now", command=self._save_presets).pack(side="right")
-        ttk.Button(rowp, text="Load now", command=self._load_presets).pack(side="right", padx=6)
+        # ttk.Button(rowp, text="Load now", command=self._load_presets).pack(side="right", padx=6)
 
         # Command preview & buttons
         box_cmd = ttk.LabelFrame(frm, text="Command", padding=10)
@@ -184,17 +170,21 @@ class Launcher(tk.Tk):
         ttk.Label(box_cmd, text="Output:").pack(anchor="w")
         self.txt_out = tk.Text(box_cmd, height=12, wrap="word")
         self.txt_out.pack(fill="both", expand=True)
+        
+        ttk.Checkbutton(colR, text="Debug (print tracebacks)",
+                        variable=self.debug,
+                        command=self._update_cmd_preview).pack(anchor="w", pady=(8,0))
 
     # ---------- helpers ----------
     def _pick_dir(self):
-        d = filedialog.askdirectory(initialdir=".", title="Datenordner wählen")
+        d = filedialog.askdirectory(initialdir=".", title="choose datafolder")
         if d:
             self.data_dir.set(d)
             self._update_cmd_preview()
 
     def _pick_script(self):
-        f = filedialog.askopenfilename(title="Zielskript wählen",
-                                       filetypes=[("Python", "*.py"), ("Alle Dateien","*.*")])
+        f = filedialog.askopenfilename(title="choose destination script",
+                                       filetypes=[("Python", "*.py"), ("All Files","*.*")])
         if f:
             self.script.set(f)
             self._update_cmd_preview()
@@ -227,10 +217,12 @@ class Launcher(tk.Tk):
             cmd += ["--price-col", self.price_col.get().strip()]
         if self.borrow_col.get().strip():
             cmd += ["--borrow-col", self.borrow_col.get().strip()]
+        if self.debug.get():
+            cmd.append("--debug")
 
-        # wenn nur Overview gewünscht → detail-order ist egal
+        # if only an overview is desired → the detail order doesn't matter
         if not overview and detail:
-            # wir starten das Skript immer gleich; das Flag steuert die UI im Ziel
+            # We always start the script the same way; the flag controls the UI at the target.
             pass
         return cmd
 
@@ -239,44 +231,50 @@ class Launcher(tk.Tk):
         s = " ".join(cmd)
         self.txt_cmd.delete("1.0", "end")
         self.txt_cmd.insert("1.0", s)
+    
+    def _append_output(self, text: str = "", sep: bool = False):
+        """Append formatted text to the output box with optional separator."""
+        if sep:
+            self.txt_out.insert("end", "\n" + "-"*60 + "\n")
+        self.txt_out.insert("end", text.strip() + "\n\n")
+        self.txt_out.see("end")
 
     def _run(self, cmd):
         try:
-            self.txt_out.insert("end", f"\n> {' '.join(cmd)}\n")
-            self.txt_out.see("end")
             self.update_idletasks()
+            self._append_output(f"> {' '.join(cmd)}", sep=True)
             proc = subprocess.run(cmd, capture_output=True, text=True)
             out = (proc.stdout or "") + ("\n" + (proc.stderr or ""))
-            self.txt_out.insert("end", out + "\n")
-            self.txt_out.see("end")
+            self._append_output(out)
             if proc.returncode != 0:
-                messagebox.showerror("Fehler", f"Prozess endete mit Code {proc.returncode}")
+                messagebox.showerror("Fehler", f"Process ended with Code {proc.returncode}. See Output for details")
         except FileNotFoundError:
-            messagebox.showerror("Fehler", "Python oder Skript nicht gefunden.")
+            messagebox.showerror("Fehler", "Python or Skript not found.")
         except Exception as e:
             messagebox.showerror("Fehler", str(e))
 
-    # ---------- actions ----------
     def run_overview(self):
         cmd = self._build_cmd(overview=True, detail=False)
-        # Dem Ziel ist egal; es zeigt immer Overview + optional Detail. Detail hier aus.
-        if "--detail" in cmd:
-            cmd.remove("--detail")
-        self._save_presets()
+        # The target doesn't care; it always shows Overview + optional Detail. Detail is off here.
+        for flag in ("--detail","--no-overview"):
+            if flag in cmd:
+                cmd.remove(flag)
         self._run(cmd)
 
     def run_detail(self):
         cmd = self._build_cmd(overview=False, detail=True)
         if "--detail" not in cmd:
             cmd.append("--detail")
-        self._save_presets()
+        if "--no-overview" not in cmd:
+            cmd.append("--no-overview")
         self._run(cmd)
 
     def run_both(self):
         cmd = self._build_cmd(overview=True, detail=True)
         if "--detail" not in cmd:
             cmd.append("--detail")
-        self._save_presets()
+        if "--no-overview" in cmd:
+            cmd.remove("--no-overview")
         self._run(cmd)
 
     # --------- presets ---------
@@ -305,6 +303,8 @@ class Launcher(tk.Tk):
                     "price_col": self.price_col,
                     "borrow_col": self.borrow_col,
                     "date_mode": self.date_mode,
+                    "debug": self.debug,
+
                 }
                 for k, v in data.items():
                     var = mapping.get(k)
@@ -321,7 +321,7 @@ class Launcher(tk.Tk):
                 pass
         except Exception as e:
             try:
-                messagebox.showwarning("Presets laden", f"Konnte Presets nicht laden:{e}")
+                messagebox.showwarning("load Presets", f"Could not load presets:{e}")
             except Exception:
                 pass
 
@@ -348,19 +348,21 @@ class Launcher(tk.Tk):
                 "price_col": self.price_col.get(),
                 "borrow_col": self.borrow_col.get(),
                 "date_mode": self.date_mode.get(),
+                "debug": self.debug.get(),
+
             }
             with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             # optional visual hint
             if hasattr(self, "txt_out"):
                 try:
-                    self.txt_out.insert("end", f"Presets gespeichert: {SETTINGS_FILE}")
+                    self.txt_out.insert("end", f"Presets saved: {SETTINGS_FILE}")
                     self.txt_out.see("end")
                 except Exception:
                     pass
         except Exception as e:
             try:
-                messagebox.showerror("Presets speichern", f"Konnte Presets nicht speichern:{e}")
+                messagebox.showerror("Save Presets", f"Could not save presets:{e}")
             except Exception:
                 pass
 

@@ -17,5 +17,6 @@
   "symbol_col": "",
   "price_col": "",
   "borrow_col": "",
-  "date_mode": "data"
+  "date_mode": "data",
+  "debug": false
 }

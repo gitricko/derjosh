@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import sys
 import re
 from datetime import datetime
 from typing import List, Optional, Tuple
@@ -11,6 +12,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import matplotlib.ticker as mticker
 
 # -----------------------
 # Date/time extraction
@@ -71,9 +73,9 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 CANDIDATES = {
-    "symbol":  [r"^symbol$", r"^ticker$", r"^name$", r"^aktie$", r"^wert$"],
-    "price": [r"^price$", r"^last$", r"^close$", r"^kurs$", r"^preis$",r"^mark$", r"^mark\s*price$", r"^mid$", r"^mid\s*price$"],
-    "borrow":  [r"^approx\s*borrow\s*size$", r"^borrow$", r"^borrow\s*size$", r"^approx.*borrow.*$", r"^abr$"],
+    "symbol":  [r"^symbol$", r"^ticker$", r"^name$"],
+    "price": [r"^price$", r"^last$", r"^close$", r"^mark$"],
+    "borrow":  [r"^approx\s*borrow\s*size$"],
 }
 
 def find_column(df: pd.DataFrame, key: str, forced: Optional[str] = None) -> Optional[str]:
@@ -93,9 +95,9 @@ def find_column(df: pd.DataFrame, key: str, forced: Optional[str] = None) -> Opt
 # ---------------------------
 
 HEADER_CANDIDATE_PATTERNS = [
-    r"^symbol$", r"^ticker$", r"^name$", r"^aktie$", r"^wert$",
-    r"^price$", r"^last$", r"^close$", r"^kurs$", r"^preis$", r"^mark$", r"^mark\s*price$", r"^mid$", r"^mid\s*price$",
-    r"^approx\s*borrow\s*size$", r"^borrow$", r"^borrow\s*size$", r"^approx.*borrow.*$", r"^abr$"
+    r"^symbol$", r"^ticker$", r"^name$",
+    r"^price$", r"^last$", r"^close$", r"^mark$",
+    r"^approx\s*borrow\s*size$",
 ]
 
 def _looks_like_header(tokens):
@@ -333,6 +335,28 @@ def _autoscale_y(ax, values, *, include_zero=False, pad=0.10, extra_floor=None):
     pad_abs = span * float(pad)
     ax.set_ylim(vmin - pad_abs, vmax + pad_abs)
 
+def _pretty_big_y(ax, *, compact=False):
+    """
+    Removes the 1e6 offset display and formats Y-ticks.
+    compact=False -> 2,500,000
+    compact=True  -> 2.5M / 2.5k / 2.5B
+    """
+    # keine wissenschaftliche Notation/Offset
+    ax.ticklabel_format(axis="y", style="plain", useOffset=False, useMathText=False)
+
+    if not compact:
+        ax.yaxis.set_major_formatter(
+            mticker.FuncFormatter(lambda x, pos: f"{x:,.0f}")
+        )
+    else:
+        def _abbr(x):
+            axx = abs(x)
+            if axx >= 1e9:  return f"{x/1e9:.1f}B"
+            if axx >= 1e6:  return f"{x/1e6:.1f}M"
+            if axx >= 1e3:  return f"{x/1e3:.1f}k"
+            return f"{x:.0f}"
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, pos: _abbr(x)))
+
 # ---------------------------
 # Ranking helper
 # ---------------------------
@@ -348,7 +372,7 @@ def rank_symbols(all_df: pd.DataFrame, mode: str, topN: Optional[int] = None) ->
         syms = list(rank.index)
         return syms if topN is None else syms[:topN]
 
-    # dev_cum: aktuelle Abweichung |Price_last - BZAP_cum_last|
+    # dev_cum: current deviation |Price_last - BZAP_cum_last|
     rows = []
     for sym, g in all_df.groupby("Symbol"):
         g = g.sort_values("Stamp")
@@ -369,23 +393,6 @@ def rank_symbols(all_df: pd.DataFrame, mode: str, topN: Optional[int] = None) ->
     df = df.sort_values(["DevSort","StampLast"], ascending=[False, False])
     syms = df["Symbol"].tolist()
     return syms if topN is None else syms[:topN]
-
-
-def _compact_positions(stamps):
-    """Gibt gleichabständige X-Positionen + hübsche Zeitlabels zurück."""
-    ts = pd.to_datetime(pd.Series(stamps))
-    xs = np.arange(len(ts))
-    labels = ts.dt.strftime("%Y-%m-%d %H:%M").tolist()
-    return xs, labels
-
-def _apply_compact_xticks(ax, labels, max_ticks=10):
-    n = len(labels)
-    if n == 0:
-        return
-    step = max(1, n // max_ticks)
-    ticks = list(range(0, n, step))
-    ax.set_xticks(ticks)
-    ax.set_xticklabels([labels[i] for i in ticks], rotation=45, ha="right")
 
 # ---------------------------
 # Grid Overview
@@ -418,11 +425,6 @@ def plot_grid_overview(all_df: pd.DataFrame, topN: int = 9, x_mode: str = "time"
             width = _adaptive_bar_width(s["Stamp"])
             ax.plot(s["Stamp"], s["Price"], marker="o", markersize=2.5, linewidth=1.1, label="Price")
             _format_time_axis(ax)
-        elif x_mode == "compact":
-            xs, labels = _compact_positions(s["Stamp"])
-            width = 0.6
-            ax.plot(xs, s["Price"].values, marker="o", markersize=2.5, linewidth=1.1, label="Price")
-            _apply_compact_xticks(ax, labels)
         else:  # index
             stamps = s["Stamp"].tolist()
             labels = _labels_from_stamps(stamps)
@@ -436,9 +438,6 @@ def plot_grid_overview(all_df: pd.DataFrame, topN: int = 9, x_mode: str = "time"
         ax2 = ax.twinx()
         if x_mode == "time":
             ax2.bar(s["Stamp"], s["Borrow"], alpha=0.28, width=width, label="Borrow Size")
-        elif x_mode == "compact":
-            ax2.bar(xs, s["Borrow"].values, alpha=0.28, width=width, label="Borrow Size")
-            _apply_compact_xticks(ax, labels)  # Ticks bleiben auf der unteren Achse (ax)
         else:  # index
             ax2.bar(xs, s["Borrow"].values, alpha=0.28, width=0.6, label="Borrow Size")
         ax2.set_yticks([])
@@ -526,13 +525,6 @@ def plot_detail_navigator(
             ax_price.plot(s["Stamp"], s["Price"], linewidth=1.4, marker="o", markersize=3.2,
                         label=f"{symbol} Price")
             _format_time_axis(ax_price)
-        elif x_mode == "compact":
-            xs, labels = _compact_positions(s["Stamp"])
-            width = 0.6
-            ax_price.plot(xs, s["Price"].values, linewidth=1.4, marker="o", markersize=3.2,
-                        label=f"{symbol} Price")
-            # Zeige auch im Price-Panel schräg formatierte Zeitlabels (wie unten)
-            _apply_compact_xticks(ax_price, labels)
         else:  # index
             xs = list(range(len(s)))
             ax_price.plot(xs, s["Price"].values, linewidth=1.4, marker="o", markersize=3.2,
@@ -550,10 +542,10 @@ def plot_detail_navigator(
         bzap_series = (cum_num / cum_den).astype(float)
         if x_mode == "time":
             ax_price.plot(s["Stamp"], bzap_series, linestyle=":", linewidth=1.2, label="BZAP (cum.)")
-        else:  # compact/index
+        else:  # index
             ax_price.plot(xs, bzap_series.values, linestyle=":", linewidth=1.2, label="BZAP (cum.)")
         
-        # --- Rolling BZAP (robust) ---
+        # --- Rolling BZAP ---
         N = 10
         p = s["Price"].astype(float)
         b = s["Borrow"].astype(float)
@@ -586,24 +578,14 @@ def plot_detail_navigator(
                 ax_borrow.axhline(floor, linestyle="--", linewidth=0.8, alpha=0.6)
                 _autoscale_y(ax_borrow, s["Borrow"].astype(float).to_numpy(),
                              include_zero=False, pad=0.10, extra_floor=floor)
+                _pretty_big_y(ax_borrow, compact=True)
             else:
                 ax_borrow.bar(s["Stamp"], bvals_plot, width=width, alpha=0.35,
                               edgecolor="black", linewidth=0.4, label=blabel)
                 _autoscale_y(ax_borrow, bvals_plot, include_zero=(state["borrow_view"]=="delta"), pad=0.10)
+                _pretty_big_y(ax_borrow, compact=True)
             _format_time_axis(ax_borrow)
-        
-        elif x_mode == "compact":
-            if floor is not None and state["borrow_view"] == "absolute":
-                heights = (s["Borrow"].astype(float).to_numpy() - floor).clip(min=0)
-                ax_borrow.bar(xs, heights, width=width, alpha=0.35,
-                            edgecolor="black", linewidth=0.4, label=blabel, bottom=floor)
-                ax_borrow.axhline(floor, linestyle="--", linewidth=0.8, alpha=0.6)
-                _autoscale_y(ax_borrow, s["Borrow"].astype(float).to_numpy(), include_zero=False, pad=0.10, extra_floor=floor)
-            else:
-                ax_borrow.bar(xs, bvals_plot, width=width, alpha=0.35,
-                            edgecolor="black", linewidth=0.4, label=blabel)
-                _autoscale_y(ax_borrow, bvals_plot, include_zero=(state["borrow_view"]=="delta"), pad=0.10)
-            _apply_compact_xticks(ax_borrow, labels)
+            
         else:
             xs = list(range(len(s)))
             if floor is not None and state["borrow_view"] == "absolute":
@@ -613,10 +595,12 @@ def plot_detail_navigator(
                 ax_borrow.axhline(floor, linestyle="--", linewidth=0.8, alpha=0.6)
                 _autoscale_y(ax_borrow, s["Borrow"].astype(float).to_numpy(),
                              include_zero=False, pad=0.10, extra_floor=floor)
+                _pretty_big_y(ax_borrow, compact=True)
             else:
                 ax_borrow.bar(xs, bvals_plot, width=0.6, alpha=0.35,
                               edgecolor="black", linewidth=0.4, label=blabel)
                 _autoscale_y(ax_borrow, bvals_plot, include_zero=(state["borrow_view"]=="delta"), pad=0.10)
+                _pretty_big_y(ax_borrow, compact=True)
             _format_index_axis(ax_borrow, _labels_from_stamps(s["Stamp"].tolist()))
 
         # optional zoom after autoscale
@@ -650,7 +634,7 @@ def plot_detail_navigator(
         )
         ax_info.text(0.01, 0.5, info_txt, fontsize=10, va="center")
 
-        fig.suptitle("Detail View — A/D or ←/→  |  Z: Δ  |  +/−: zoom  |  X: floor (none/p10/min)  |  Q: quit",
+        fig.suptitle("Detail View — A/D or ←/→  |  Z: toggle Borrow Size  Delta Δ / Standard  |  +/−: zoom  |  X: floor (none/p10/min)  |  Q: quit",
                      fontsize=12)
         fig.tight_layout()
         fig.canvas.draw_idle()
@@ -701,12 +685,12 @@ def main():
     ap.add_argument("--price-col", default=None)
     ap.add_argument("--borrow-col", default=None)
     ap.add_argument("--detail", action="store_true")
+    ap.add_argument("--no-overview", action="store_true",
+                help="Do not show the overview grid (detail-only mode).")
     ap.add_argument("--initial-symbol", default=None)
-    ap.add_argument("--x-mode", choices=["time","index","compact"], default="time",
+    ap.add_argument("--x-mode", choices=["time","index",], default="time",
                 help="'time' = real Timeaxle (with gaps), "
-                     "'index' = same spacing without time lables, "
-                     "'compact' = same spacing WITH time lables (no gaps) .")
-
+                     "'index' = same spacing without time lables")
     ap.add_argument("--date-mode", choices=["data","weekday"], default="data")
 
     # Live/visual options
@@ -723,25 +707,41 @@ def main():
     ap.add_argument("--overview-rank", choices=["borrow","dev_cum","alpha"], default="dev_cum",
                     help="Ranking in overview: borrow (ΣBorrow), dev_cum (latest |Price-BZAP(cum.)|), alpha.")
     ap.add_argument("--detail-order", choices=["overview","alpha","borrow","dev_cum"], default="overview",
-                    help="Order in detail view: 'overview' to follow overview ranking.")
+                    help="'Order' in detail view; 'overview' to follow overview ranking.")
+    ap.add_argument("--debug", action="store_true",
+                    help="Print full Python tracebacks on errors.")
 
     args = ap.parse_args()
 
-    all_df = load_and_merge(
-        data_dir=args.data_dir,
-        n_days=args.days,
-        sep=args.sep,
-        symbol_col=args.symbol_col,
-        price_col=args.price_col,
-        borrow_col=args.borrow_col,
-        date_mode=args.date_mode,
-    )
+    try:
+        all_df = load_and_merge(
+            data_dir=args.data_dir,
+            n_days=args.days,
+            sep=args.sep,
+            symbol_col=args.symbol_col,
+            price_col=args.price_col,
+            borrow_col=args.borrow_col,
+            date_mode=args.date_mode,
+        )
+    except (ValueError, FileNotFoundError) as e:
+        print(f"[INPUT ERROR]\n{e}\n" + "-"*60)
+        if args.debug:
+            import traceback; traceback.print_exc()
+        sys.exit(2)
+
+    except Exception as e:
+        print(f"[UNEXPECTED ERROR]\n{e}\n" + "-"*60)
+        if args.debug:
+            import traceback; traceback.print_exc()
+        sys.exit(2)
+
 
     overview_symbols = rank_symbols(all_df, args.overview_rank, topN=args.topN)
 
-    plot_grid_overview(all_df, topN=args.topN, x_mode=args.x_mode,
-                       overview_rank=args.overview_rank, symbols=overview_symbols)
-
+    if not args.no_overview:
+        plot_grid_overview(all_df, topN=args.topN, x_mode=args.x_mode,
+                           overview_rank=args.overview_rank, symbols=overview_symbols)
+        
     if args.detail:
         if args.detail_order == "overview":
             detail_symbols = overview_symbols
